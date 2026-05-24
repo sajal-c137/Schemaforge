@@ -3,6 +3,7 @@ import type { EdgeId, NodeId } from "@/lib/ids";
 import type { SchemaShape } from "@/lib/schema/types";
 import type {
   FilterConfig,
+  MapConfig,
   NodePosition,
   PipelineNode,
 } from "@/lib/pipeline/types";
@@ -30,6 +31,7 @@ export interface AppState {
   removeNode: (id: NodeId) => void;
   moveNode: (id: NodeId, position: NodePosition) => void;
   updateFilterConfig: (id: NodeId, patch: Partial<FilterConfig>) => void;
+  updateMapConfig: (id: NodeId, patch: Partial<MapConfig>) => void;
   addEdge: (edge: Edge) => void;
   removeEdge: (id: EdgeId) => void;
 }
@@ -84,6 +86,18 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       const existing = state.nodes[id];
       if (!existing || existing.kind !== "filter") return state;
+      return {
+        nodes: {
+          ...state.nodes,
+          [id]: { ...existing, config: { ...existing.config, ...patch } },
+        },
+      };
+    }),
+
+  updateMapConfig: (id, patch) =>
+    set((state) => {
+      const existing = state.nodes[id];
+      if (!existing || existing.kind !== "map") return state;
       return {
         nodes: {
           ...state.nodes,

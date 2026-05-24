@@ -17,16 +17,33 @@ import { EdgeId, NodeId } from "@/lib/ids";
 import {
   SOURCE_NODE_ID,
   createFilterNode,
+  createMapNode,
+  type NodePosition,
   type PipelineNode,
 } from "@/lib/pipeline/types";
 import type { SchemaShape } from "@/lib/schema/types";
 import { SourceNode, type SourceNodeData } from "@/components/nodes/SourceNode";
 import { FilterNode, type FilterNodeData } from "@/components/nodes/FilterNode";
+import { MapNode, type MapNodeData } from "@/components/nodes/MapNode";
+import { NodePalette, type PaletteKind } from "@/components/NodePalette";
 
 const nodeTypes = {
   source: SourceNode,
   filter: FilterNode,
+  map: MapNode,
 };
+
+// Factory lookup keyed by addable kind. `satisfies` checks the shape
+// without widening — adding a Sort/Limit factory in Hours 10/11 is a
+// one-line change that the compiler will gate against the PaletteKind
+// union.
+const NODE_FACTORIES = {
+  filter: createFilterNode,
+  map: createMapNode,
+} as const satisfies Record<
+  PaletteKind,
+  (id: NodeId, position: NodePosition) => PipelineNode
+>;
 
 export function CanvasPanel() {
   const parsed = useAppStore((s) => s.schema.parsed);
@@ -93,15 +110,14 @@ export function CanvasPanel() {
     [addEdge],
   );
 
-  const handleAddFilter = useCallback(() => {
-    const offset = Object.keys(pipelineNodes).length * 30;
-    addNode(
-      createFilterNode(NodeId(crypto.randomUUID()), {
-        x: 360 + offset,
-        y: 140 + offset,
-      }),
-    );
-  }, [addNode, pipelineNodes]);
+  const handleAddNode = useCallback(
+    (kind: PaletteKind) => {
+      const offset = Object.keys(pipelineNodes).length * 30;
+      const position: NodePosition = { x: 360 + offset, y: 140 + offset };
+      addNode(NODE_FACTORIES[kind](NodeId(crypto.randomUUID()), position));
+    },
+    [addNode, pipelineNodes],
+  );
 
   return (
     <section className="flex h-full flex-col border-r border-slate-800">
@@ -133,13 +149,7 @@ export function CanvasPanel() {
             nodeColor="#1e40af"
           />
         </ReactFlow>
-        <button
-          type="button"
-          onClick={handleAddFilter}
-          className="absolute right-4 top-4 z-10 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white shadow hover:bg-blue-500"
-        >
-          + Filter
-        </button>
+        {parsed && <NodePalette onAdd={handleAddNode} />}
         {!parsed && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-slate-500">
             Define an interface in the Schema panel to begin.
@@ -186,9 +196,15 @@ function pipelineNodeToRfNode(
         data: { config: node.config, schema } satisfies FilterNodeData,
       };
     case "map":
+      return {
+        id: node.id,
+        type: "map",
+        position: { x: node.position.x, y: node.position.y },
+        data: { config: node.config, schema } satisfies MapNodeData,
+      };
     case "sort":
     case "limit":
-      // Default RF node renderer until Hours 6/10/11 ship the real ones.
+      // Default RF node renderer until Hours 10/11 ship the real ones.
       return {
         id: node.id,
         position: { x: node.position.x, y: node.position.y },

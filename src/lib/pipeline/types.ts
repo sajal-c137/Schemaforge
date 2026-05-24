@@ -23,9 +23,23 @@ export interface FilterConfig {
   value: string;
 }
 
+// A Map node projects each input row to an output row. v1 is structured:
+// pick existing source fields, optionally rename them. Computed expressions
+// (e.g. `firstName + ' ' + lastName`) are deferred to Hour 13 as a stretch.
+// Empty projections = passthrough (identity map, all fields preserved).
+export interface MapProjection {
+  id: string;
+  sourceField: string;
+  alias: string | null;
+}
+
+export interface MapConfig {
+  projections: MapProjection[];
+}
+
 export type PipelineNode =
   | { id: NodeId; kind: "filter"; position: NodePosition; config: FilterConfig }
-  | { id: NodeId; kind: "map"; position: NodePosition }
+  | { id: NodeId; kind: "map"; position: NodePosition; config: MapConfig }
   | { id: NodeId; kind: "sort"; position: NodePosition }
   | { id: NodeId; kind: "limit"; position: NodePosition };
 
@@ -43,9 +57,6 @@ export const FILTER_OPERATORS: readonly FilterOperator[] = [
 
 export const SOURCE_NODE_ID = "__source";
 
-// Factory: every fresh filter node starts with an empty config. We do this
-// in one place so the default shape is consistent and a future config
-// change (e.g. adding `negate: boolean`) needs updating only here.
 export function createFilterNode(
   id: NodeId,
   position: NodePosition,
@@ -55,5 +66,17 @@ export function createFilterNode(
     kind: "filter",
     position,
     config: { field: null, operator: null, value: "" },
+  };
+}
+
+export function createMapNode(
+  id: NodeId,
+  position: NodePosition,
+): PipelineNode {
+  return {
+    id,
+    kind: "map",
+    position,
+    config: { projections: [] },
   };
 }
