@@ -1,4 +1,13 @@
-import type { NodeId } from "@/lib/ids";
+import type { EdgeId, NodeId } from "@/lib/ids";
+
+// An edge in the pipeline graph: a directed connection between two nodes.
+// Lives here (not in the Zustand store) so the pure codegen module can
+// import edge shape without depending on the store.
+export interface Edge {
+  id: EdgeId;
+  source: NodeId;
+  target: NodeId;
+}
 
 // React Flow needs a position for every visible node. We store position
 // on the PipelineNode itself (not in a separate UI slice) so URL state

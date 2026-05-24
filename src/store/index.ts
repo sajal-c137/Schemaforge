@@ -2,17 +2,16 @@ import { create } from "zustand";
 import type { EdgeId, NodeId } from "@/lib/ids";
 import type { SchemaShape } from "@/lib/schema/types";
 import type {
+  Edge,
   FilterConfig,
   MapConfig,
   NodePosition,
   PipelineNode,
 } from "@/lib/pipeline/types";
 
-export interface Edge {
-  id: EdgeId;
-  source: NodeId;
-  target: NodeId;
-}
+// Re-export Edge so existing consumers (CanvasPanel) keep working without
+// touching their imports.
+export type { Edge };
 
 export interface SchemaSlice {
   source: string;
