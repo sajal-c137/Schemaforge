@@ -1,10 +1,8 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useMemo } from "react";
 import ReactFlow, {
   Background,
   Controls,
   MiniMap,
-  useEdgesState,
-  useNodesState,
   type Connection,
   type Edge as RfEdge,
   type EdgeChange,
@@ -55,47 +53,48 @@ export function CanvasPanel() {
   const removeEdge = useAppStore((s) => s.removeEdge);
   const moveNode = useAppStore((s) => s.moveNode);
 
-  // Local RF state shadows the store so drag/select feel snappy. The two
-  // effects below keep them aligned on store-driven changes; the
-  // handler callbacks below push RF-originated changes back into the store.
-  const [rfNodes, setRfNodes, onNodesChange] = useNodesState<RfNode["data"]>([]);
-  const [rfEdges, setRfEdges, onEdgesChange] = useEdgesState([]);
-
-  useEffect(() => {
-    setRfNodes(buildRfNodes(parsed, pipelineNodes));
-  }, [parsed, pipelineNodes, setRfNodes]);
-
-  useEffect(() => {
-    setRfEdges(buildRfEdges(pipelineEdges));
-  }, [pipelineEdges, setRfEdges]);
+  // RF runs in controlled mode: nodes/edges are derived directly from
+  // the store, no shadow state. Every RF-emitted change commits to the
+  // store synchronously inside the handler; React batches the resulting
+  // re-render so drag previews stay smooth without a separate local
+  // copy that could drift mid-edit.
+  const rfNodes = useMemo(
+    () => buildRfNodes(parsed, pipelineNodes),
+    [parsed, pipelineNodes],
+  );
+  const rfEdges = useMemo(
+    () => buildRfEdges(pipelineEdges),
+    [pipelineEdges],
+  );
 
   const handleNodesChange = useCallback(
     (changes: NodeChange[]) => {
-      onNodesChange(changes);
       for (const change of changes) {
         if (
           change.type === "position" &&
           change.position &&
-          change.dragging === false &&
           change.id !== SOURCE_NODE_ID
         ) {
+          // Commit on every position emit, not just drag-stop. With no
+          // shadow state, RF expects the `position` prop on the next
+          // render to reflect the change it just emitted, or the node
+          // visually snaps back.
           moveNode(NodeId(change.id), change.position);
         } else if (change.type === "remove" && change.id !== SOURCE_NODE_ID) {
           removeNode(NodeId(change.id));
         }
       }
     },
-    [moveNode, onNodesChange, removeNode],
+    [moveNode, removeNode],
   );
 
   const handleEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
-      onEdgesChange(changes);
       for (const change of changes) {
         if (change.type === "remove") removeEdge(EdgeId(change.id));
       }
     },
-    [onEdgesChange, removeEdge],
+    [removeEdge],
   );
 
   const handleConnect = useCallback(
@@ -184,9 +183,6 @@ function pipelineNodeToRfNode(
   node: PipelineNode,
   schema: SchemaShape | null,
 ): RfNode {
-  // Exhaustive switch on `kind` — TS will error if a new variant lands
-  // without a branch here, because the function would no longer return
-  // an RfNode on every path.
   switch (node.kind) {
     case "filter":
       return {
@@ -210,7 +206,13 @@ function pipelineNodeToRfNode(
         position: { x: node.position.x, y: node.position.y },
         data: { label: node.kind },
       };
+    default:
+      return assertNeverNode(node);
   }
+}
+
+function assertNeverNode(node: never): RfNode {
+  throw new Error(`Unhandled node kind: ${JSON.stringify(node)}`);
 }
 
 function buildRfEdges(edges: Record<EdgeId, StoreEdge>): RfEdge[] {
