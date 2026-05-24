@@ -1,7 +1,11 @@
 import { create } from "zustand";
 import type { EdgeId, NodeId } from "@/lib/ids";
 import type { SchemaShape } from "@/lib/schema/types";
-import type { PipelineNode } from "@/lib/pipeline/types";
+import type {
+  FilterConfig,
+  NodePosition,
+  PipelineNode,
+} from "@/lib/pipeline/types";
 
 export interface Edge {
   id: EdgeId;
@@ -24,6 +28,8 @@ export interface AppState {
   setParsedSchema: (parsed: SchemaShape | null, error: string | null) => void;
   addNode: (node: PipelineNode) => void;
   removeNode: (id: NodeId) => void;
+  moveNode: (id: NodeId, position: NodePosition) => void;
+  updateFilterConfig: (id: NodeId, patch: Partial<FilterConfig>) => void;
   addEdge: (edge: Edge) => void;
   removeEdge: (id: EdgeId) => void;
 }
@@ -59,7 +65,31 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       const next = { ...state.nodes };
       delete next[id];
-      return { nodes: next };
+      // Cascade: drop any edges that referenced this node.
+      const nextEdges: Record<EdgeId, Edge> = {};
+      for (const [eid, edge] of Object.entries(state.edges) as [EdgeId, Edge][]) {
+        if (edge.source !== id && edge.target !== id) nextEdges[eid] = edge;
+      }
+      return { nodes: next, edges: nextEdges };
+    }),
+
+  moveNode: (id, position) =>
+    set((state) => {
+      const existing = state.nodes[id];
+      if (!existing) return state;
+      return { nodes: { ...state.nodes, [id]: { ...existing, position } } };
+    }),
+
+  updateFilterConfig: (id, patch) =>
+    set((state) => {
+      const existing = state.nodes[id];
+      if (!existing || existing.kind !== "filter") return state;
+      return {
+        nodes: {
+          ...state.nodes,
+          [id]: { ...existing, config: { ...existing.config, ...patch } },
+        },
+      };
     }),
 
   addEdge: (edge) =>
