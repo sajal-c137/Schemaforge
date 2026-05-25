@@ -7,6 +7,7 @@ import type {
   MapConfig,
   NodePosition,
   PipelineNode,
+  SortConfig,
 } from "@/lib/pipeline/types";
 
 // Re-export Edge so existing consumers (CanvasPanel) keep working without
@@ -31,6 +32,7 @@ export interface AppState {
   moveNode: (id: NodeId, position: NodePosition) => void;
   updateFilterConfig: (id: NodeId, patch: Partial<FilterConfig>) => void;
   updateMapConfig: (id: NodeId, patch: Partial<MapConfig>) => void;
+  updateSortConfig: (id: NodeId, patch: Partial<SortConfig>) => void;
   addEdge: (edge: Edge) => void;
   removeEdge: (id: EdgeId) => void;
 }
@@ -97,6 +99,18 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       const existing = state.nodes[id];
       if (!existing || existing.kind !== "map") return state;
+      return {
+        nodes: {
+          ...state.nodes,
+          [id]: { ...existing, config: { ...existing.config, ...patch } },
+        },
+      };
+    }),
+
+  updateSortConfig: (id, patch) =>
+    set((state) => {
+      const existing = state.nodes[id];
+      if (!existing || existing.kind !== "sort") return state;
       return {
         nodes: {
           ...state.nodes,

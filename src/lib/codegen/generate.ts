@@ -11,6 +11,7 @@ import {
   type FilterConfig,
   type MapConfig,
   type PipelineNode,
+  type SortConfig,
 } from "@/lib/pipeline/types";
 import { assertNever } from "@/lib/assert";
 import {
@@ -105,7 +106,7 @@ function emitStep(node: PipelineNode, schema: SchemaShape): string | null {
     case "map":
       return emitMap(node.config);
     case "sort":
-      return "// .sort(...) — Sort node arrives in Hour 10";
+      return emitSort(node.config, schema);
     case "limit":
       return "// .slice(0, n) — Limit node arrives in Hour 11";
     default:
@@ -141,6 +142,50 @@ function emitMap(config: MapConfig): string | null {
     return `${propertyKey(key)}: row.${p.sourceField}`;
   });
   return `.map((row) => ({ ${props.join(", ")} }))`;
+}
+
+function emitSort(config: SortConfig, schema: SchemaShape): string {
+  const { field, direction } = config;
+  if (field === null) {
+    return ".sort(() => 0) /* TODO: configure sort */";
+  }
+  const type = lookupFieldType(schema, field);
+  if (type === null) {
+    return `.sort(() => 0) /* unknown field: ${field} */`;
+  }
+  const body = comparatorForField(field, type);
+  // For descending order, negate the comparator. Wrap in parens so the
+  // sign applies to the whole expression and not just the leading term
+  // (e.g. `-(a.x - b.x)` is correct; `-a.x - b.x` would be a bug).
+  const expr = direction === "desc" ? `-(${body})` : body;
+  return `.sort((a, b) => ${expr})`;
+}
+
+// Returns the *body* of an ascending Array#sort comparator for one
+// field — the string dropped into `(a, b) => <body>`. emitSort negates
+// it for descending, so this only ever produces the ascending form.
+// Adding a new FieldType arm (e.g. dates in Hour 13) requires touching
+// this switch; the `default: assertNever` makes that a compile error.
+function comparatorForField(field: string, type: FieldType): string {
+  switch (type.kind) {
+    case "primitive":
+      switch (type.name) {
+        case "number":
+          return `a.${field} - b.${field}`;
+        case "string":
+          return `a.${field}.localeCompare(b.${field})`;
+        case "boolean":
+          return `Number(a.${field}) - Number(b.${field})`;
+        default:
+          return assertNever(type.name);
+      }
+    case "array":
+      return `0 /* cannot sort by array field: ${field} */`;
+    case "unknown":
+      return `0 /* cannot sort by unknown field: ${field} */`;
+    default:
+      return assertNever(type);
+  }
 }
 
 // Coerce a raw string from a Filter node's value input into a TS literal

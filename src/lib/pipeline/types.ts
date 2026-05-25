@@ -46,10 +46,17 @@ export interface MapConfig {
   projections: MapProjection[];
 }
 
+export type SortDirection = "asc" | "desc";
+
+export interface SortConfig {
+  field: string | null;
+  direction: SortDirection;
+}
+
 export type PipelineNode =
   | { id: NodeId; kind: "filter"; position: NodePosition; config: FilterConfig }
   | { id: NodeId; kind: "map"; position: NodePosition; config: MapConfig }
-  | { id: NodeId; kind: "sort"; position: NodePosition }
+  | { id: NodeId; kind: "sort"; position: NodePosition; config: SortConfig }
   | { id: NodeId; kind: "limit"; position: NodePosition };
 
 export type NodeKind = PipelineNode["kind"];
@@ -87,5 +94,17 @@ export function createMapNode(
     kind: "map",
     position,
     config: { projections: [] },
+  };
+}
+
+export function createSortNode(
+  id: NodeId,
+  position: NodePosition,
+): PipelineNode {
+  return {
+    id,
+    kind: "sort",
+    position,
+    config: { field: null, direction: "asc" },
   };
 }

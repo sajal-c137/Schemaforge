@@ -16,6 +16,7 @@ import {
   SOURCE_NODE_ID,
   createFilterNode,
   createMapNode,
+  createSortNode,
   type NodePosition,
   type PipelineNode,
 } from "@/lib/pipeline/types";
@@ -23,21 +24,23 @@ import type { SchemaShape } from "@/lib/schema/types";
 import { SourceNode, type SourceNodeData } from "@/components/nodes/SourceNode";
 import { FilterNode, type FilterNodeData } from "@/components/nodes/FilterNode";
 import { MapNode, type MapNodeData } from "@/components/nodes/MapNode";
+import { SortNode, type SortNodeData } from "@/components/nodes/SortNode";
 import { NodePalette, type PaletteKind } from "@/components/NodePalette";
 
 const nodeTypes = {
   source: SourceNode,
   filter: FilterNode,
   map: MapNode,
+  sort: SortNode,
 };
 
 // Factory lookup keyed by addable kind. `satisfies` checks the shape
-// without widening — adding a Sort/Limit factory in Hours 10/11 is a
-// one-line change that the compiler will gate against the PaletteKind
-// union.
+// without widening — adding a Limit factory in Hour 11 is a one-line
+// change that the compiler will gate against the PaletteKind union.
 const NODE_FACTORIES = {
   filter: createFilterNode,
   map: createMapNode,
+  sort: createSortNode,
 } as const satisfies Record<
   PaletteKind,
   (id: NodeId, position: NodePosition) => PipelineNode
@@ -199,8 +202,14 @@ function pipelineNodeToRfNode(
         data: { config: node.config, schema } satisfies MapNodeData,
       };
     case "sort":
+      return {
+        id: node.id,
+        type: "sort",
+        position: { x: node.position.x, y: node.position.y },
+        data: { config: node.config, schema } satisfies SortNodeData,
+      };
     case "limit":
-      // Default RF node renderer until Hours 10/11 ship the real ones.
+      // Default RF node renderer until Hour 11 ships the real one.
       return {
         id: node.id,
         position: { x: node.position.x, y: node.position.y },
