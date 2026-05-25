@@ -138,6 +138,7 @@ export function CanvasPanel() {
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={handleConnect}
+          deleteKeyCode={["Backspace", "Delete"]}
           fitView
           fitViewOptions={{ padding: 0.25 }}
           proOptions={{ hideAttribution: true }}

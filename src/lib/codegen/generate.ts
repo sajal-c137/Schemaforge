@@ -33,63 +33,200 @@ const PLACEHOLDER_NO_SCHEMA =
 export function generateCode({ schema, nodes, edges }: GenerateInput): string {
   if (!schema) return PLACEHOLDER_NO_SCHEMA;
 
-  const chain = walkPipeline(nodes, edges);
+  const { segments, leafLabels } = planBranches(nodes, edges);
+  const header = `export const query = (input: ${schema.name}[]) =>`;
+
+  // 0 segments: no transformations reachable from source. Emit the
+  // identity query so the panel always shows valid TS.
+  if (segments.length === 0) {
+    return `${header} input;\n`;
+  }
+
+  // Single linear branch (no fan-out points, exactly one leaf rooted
+  // directly at source): emit the clean arrow-expression form. This
+  // preserves the pre-branching output for the common case so users
+  // don't see a wrapping `{ const branch1 = ...; return { branch1 }; }`
+  // for a one-line pipeline.
+  const only = segments[0];
+  if (
+    segments.length === 1 &&
+    leafLabels.length === 1 &&
+    only !== undefined &&
+    only.fromLabel === "input"
+  ) {
+    return emitLinearForm(header, only.chain, schema);
+  }
+
+  // Branching form: every segment becomes a `const`, leaves are
+  // collected into a return object.
+  return emitBlockForm(header, segments, leafLabels, schema);
+}
+
+function emitLinearForm(
+  header: string,
+  chain: PipelineNode[],
+  schema: SchemaShape,
+): string {
   const steps: string[] = [];
   for (const node of chain) {
     const step = emitStep(node, schema);
     if (step !== null) steps.push(step);
   }
-
-  const header = `export const query = (input: ${schema.name}[]) =>`;
-  if (steps.length === 0) {
-    return `${header} input;\n`;
-  }
-
+  if (steps.length === 0) return `${header} input;\n`;
   const lines = [header, indentLine("input", 2)];
   for (const step of steps) lines.push(indentLine(step, 4));
-  // Tack the trailing semicolon onto the final method call so the
-  // emitted statement is well-formed without an extra dangling line.
   const lastIndex = lines.length - 1;
   const last = lines[lastIndex];
   if (last !== undefined) lines[lastIndex] = `${last};`;
   return `${lines.join("\n")}\n`;
 }
 
-// Walk forward from the Source node along outgoing edges, returning the
-// linear chain of pipeline nodes the codegen will emit. A pipeline with
-// branches is collapsed to the first child by deterministic id sort —
-// real branching is out of scope for v1.
-function walkPipeline(
+function emitBlockForm(
+  header: string,
+  segments: Segment[],
+  leafLabels: string[],
+  schema: SchemaShape,
+): string {
+  const lines: string[] = [`${header} {`];
+  for (const seg of segments) {
+    const steps: string[] = [];
+    for (const node of seg.chain) {
+      const step = emitStep(node, schema);
+      if (step !== null) steps.push(step);
+    }
+    if (steps.length === 0) {
+      // Segment is entirely identity steps (e.g. empty Map). Bind
+      // through so downstream references resolve.
+      lines.push(`  const ${seg.toLabel} = ${seg.fromLabel};`);
+      continue;
+    }
+    if (steps.length === 1) {
+      lines.push(`  const ${seg.toLabel} = ${seg.fromLabel}${steps[0]};`);
+      continue;
+    }
+    lines.push(`  const ${seg.toLabel} = ${seg.fromLabel}`);
+    for (let i = 0; i < steps.length - 1; i++) {
+      const step = steps[i];
+      if (step !== undefined) lines.push(indentLine(step, 4));
+    }
+    const lastStep = steps[steps.length - 1];
+    if (lastStep !== undefined) {
+      lines.push(`${indentLine(lastStep, 4)};`);
+    }
+  }
+  lines.push(`  return { ${leafLabels.join(", ")} };`);
+  lines.push(`};`);
+  return `${lines.join("\n")}\n`;
+}
+
+// A segment is one straight-line chain of nodes between two anchors.
+// `fromLabel` names the expression the chain is rooted on (`input` or
+// a previously-bound `stepN`); `toLabel` is the const the segment
+// declares (`stepN` for fan-out points, `branchN` for leaves). The
+// chain ends with the to-anchor node — its transformation is the last
+// method call in the emitted expression.
+interface Segment {
+  fromLabel: string;
+  toLabel: string;
+  chain: PipelineNode[];
+}
+
+interface BranchPlan {
+  segments: Segment[];
+  leafLabels: string[];
+}
+
+// Walk the edge graph from Source and decompose it into segments
+// suitable for emit. A "linear" pipeline produces one segment whose
+// chain is the whole pipeline; a "fan-out" pipeline produces one
+// segment per anchor-to-anchor span. Multiple incoming edges to a
+// single node are silently collapsed (BFS visits each node once) —
+// fan-in / merge is explicitly out of scope; Hour 13+ might revisit.
+function planBranches(
   nodes: Record<NodeId, PipelineNode>,
   edges: Record<EdgeId, Edge>,
-): PipelineNode[] {
+): BranchPlan {
+  // Build deduped, deterministically-sorted outgoing adjacency.
   const outgoing = new Map<string, string[]>();
   for (const edge of Object.values(edges)) {
     const list = outgoing.get(edge.source) ?? [];
-    list.push(edge.target);
+    if (!list.includes(edge.target)) list.push(edge.target);
     outgoing.set(edge.source, list);
   }
-  // Sort each adjacency list so traversal order is independent of the
-  // insertion order in the edges record.
   for (const list of outgoing.values()) list.sort();
 
-  const chain: PipelineNode[] = [];
-  const visited = new Set<string>();
-  let current: string = SOURCE_NODE_ID;
-  // Bounded by node count: every iteration consumes one fresh node id
-  // or stops, so this cannot loop forever even on malformed input.
-  while (true) {
-    const next = outgoing.get(current);
-    if (!next || next.length === 0) break;
-    const targetId = next[0];
-    if (targetId === undefined || visited.has(targetId)) break;
-    visited.add(targetId);
-    const node = nodes[targetId as NodeId];
-    if (!node) break;
-    chain.push(node);
-    current = targetId;
+  // BFS from source to find all reachable nodes in stable order. The
+  // visited-set caps each node at one visit, so multiple incoming
+  // edges produce one classification (no double-counting as fan-in).
+  const reachableOrder: string[] = [];
+  const reachable = new Set<string>([SOURCE_NODE_ID]);
+  const queue: string[] = [SOURCE_NODE_ID];
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    const out = outgoing.get(id) ?? [];
+    for (const target of out) {
+      if (reachable.has(target)) continue;
+      reachable.add(target);
+      reachableOrder.push(target);
+      queue.push(target);
+    }
   }
-  return chain;
+
+  // Classify reachable non-source nodes. Anchors get labels; chain-
+  // internal nodes (exactly 1 outgoing) stay unlabeled.
+  const labels = new Map<string, string>([[SOURCE_NODE_ID, "input"]]);
+  const anchorIds: string[] = [SOURCE_NODE_ID];
+  const leafLabels: string[] = [];
+  let stepCount = 0;
+  let leafCount = 0;
+  for (const id of reachableOrder) {
+    const out = outgoing.get(id) ?? [];
+    if (out.length === 0) {
+      leafCount++;
+      const label = `branch${leafCount}`;
+      labels.set(id, label);
+      leafLabels.push(label);
+      anchorIds.push(id);
+    } else if (out.length >= 2) {
+      stepCount++;
+      labels.set(id, `step${stepCount}`);
+      anchorIds.push(id);
+    }
+  }
+
+  // For each non-leaf anchor, follow every outgoing edge through chain-
+  // internal nodes until we hit the next anchor. The to-anchor node is
+  // included in the chain so its transformation gets emitted.
+  const segments: Segment[] = [];
+  for (const anchorId of anchorIds) {
+    const fromLabel = labels.get(anchorId);
+    if (fromLabel === undefined || fromLabel.startsWith("branch")) continue;
+    const out = outgoing.get(anchorId) ?? [];
+    for (const startId of out) {
+      const chain: PipelineNode[] = [];
+      const localVisited = new Set<string>();
+      let current: string | undefined = startId;
+      // Bounded by reachable count; the localVisited set guards against
+      // any cycle the BFS might have permitted via stale edges.
+      while (current !== undefined && !localVisited.has(current)) {
+        localVisited.add(current);
+        const node = nodes[current as NodeId];
+        if (!node) break;
+        chain.push(node);
+        if (labels.has(current)) break;
+        current = (outgoing.get(current) ?? [])[0];
+      }
+      const last = chain[chain.length - 1];
+      if (!last || !labels.has(last.id)) continue;
+      segments.push({
+        fromLabel,
+        toLabel: labels.get(last.id)!,
+        chain,
+      });
+    }
+  }
+
+  return { segments, leafLabels };
 }
 
 // Returns a single line like `.filter((row) => row.age > 18)`, or null
