@@ -15,6 +15,7 @@ import { EdgeId, NodeId } from "@/lib/ids";
 import {
   SOURCE_NODE_ID,
   createFilterNode,
+  createLimitNode,
   createMapNode,
   createSortNode,
   type NodePosition,
@@ -25,6 +26,7 @@ import { SourceNode, type SourceNodeData } from "@/components/nodes/SourceNode";
 import { FilterNode, type FilterNodeData } from "@/components/nodes/FilterNode";
 import { MapNode, type MapNodeData } from "@/components/nodes/MapNode";
 import { SortNode, type SortNodeData } from "@/components/nodes/SortNode";
+import { LimitNode, type LimitNodeData } from "@/components/nodes/LimitNode";
 import { NodePalette, type PaletteKind } from "@/components/NodePalette";
 
 const nodeTypes = {
@@ -32,15 +34,17 @@ const nodeTypes = {
   filter: FilterNode,
   map: MapNode,
   sort: SortNode,
+  limit: LimitNode,
 };
 
 // Factory lookup keyed by addable kind. `satisfies` checks the shape
-// without widening — adding a Limit factory in Hour 11 is a one-line
-// change that the compiler will gate against the PaletteKind union.
+// without widening — the `Record<PaletteKind, ...>` constraint gates
+// every palette button against a real factory entry at compile time.
 const NODE_FACTORIES = {
   filter: createFilterNode,
   map: createMapNode,
   sort: createSortNode,
+  limit: createLimitNode,
 } as const satisfies Record<
   PaletteKind,
   (id: NodeId, position: NodePosition) => PipelineNode
@@ -209,11 +213,11 @@ function pipelineNodeToRfNode(
         data: { config: node.config, schema } satisfies SortNodeData,
       };
     case "limit":
-      // Default RF node renderer until Hour 11 ships the real one.
       return {
         id: node.id,
+        type: "limit",
         position: { x: node.position.x, y: node.position.y },
-        data: { label: node.kind },
+        data: { config: node.config } satisfies LimitNodeData,
       };
     default:
       return assertNeverNode(node);

@@ -53,11 +53,19 @@ export interface SortConfig {
   direction: SortDirection;
 }
 
+// `count` is `number | null`: null means the user hasn't entered a value
+// yet (codegen emits a TODO no-op). The UI input enforces positive
+// integers via type/min/step; codegen also defends with an integer/range
+// check so a stale/malformed store value can never emit broken code.
+export interface LimitConfig {
+  count: number | null;
+}
+
 export type PipelineNode =
   | { id: NodeId; kind: "filter"; position: NodePosition; config: FilterConfig }
   | { id: NodeId; kind: "map"; position: NodePosition; config: MapConfig }
   | { id: NodeId; kind: "sort"; position: NodePosition; config: SortConfig }
-  | { id: NodeId; kind: "limit"; position: NodePosition };
+  | { id: NodeId; kind: "limit"; position: NodePosition; config: LimitConfig };
 
 export type NodeKind = PipelineNode["kind"];
 
@@ -106,5 +114,17 @@ export function createSortNode(
     kind: "sort",
     position,
     config: { field: null, direction: "asc" },
+  };
+}
+
+export function createLimitNode(
+  id: NodeId,
+  position: NodePosition,
+): PipelineNode {
+  return {
+    id,
+    kind: "limit",
+    position,
+    config: { count: null },
   };
 }

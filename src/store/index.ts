@@ -4,6 +4,7 @@ import type { SchemaShape } from "@/lib/schema/types";
 import type {
   Edge,
   FilterConfig,
+  LimitConfig,
   MapConfig,
   NodePosition,
   PipelineNode,
@@ -33,6 +34,7 @@ export interface AppState {
   updateFilterConfig: (id: NodeId, patch: Partial<FilterConfig>) => void;
   updateMapConfig: (id: NodeId, patch: Partial<MapConfig>) => void;
   updateSortConfig: (id: NodeId, patch: Partial<SortConfig>) => void;
+  updateLimitConfig: (id: NodeId, patch: Partial<LimitConfig>) => void;
   addEdge: (edge: Edge) => void;
   removeEdge: (id: EdgeId) => void;
 }
@@ -111,6 +113,18 @@ export const useAppStore = create<AppState>((set) => ({
     set((state) => {
       const existing = state.nodes[id];
       if (!existing || existing.kind !== "sort") return state;
+      return {
+        nodes: {
+          ...state.nodes,
+          [id]: { ...existing, config: { ...existing.config, ...patch } },
+        },
+      };
+    }),
+
+  updateLimitConfig: (id, patch) =>
+    set((state) => {
+      const existing = state.nodes[id];
+      if (!existing || existing.kind !== "limit") return state;
       return {
         nodes: {
           ...state.nodes,

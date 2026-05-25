@@ -9,6 +9,7 @@ import {
   SOURCE_NODE_ID,
   type Edge,
   type FilterConfig,
+  type LimitConfig,
   type MapConfig,
   type PipelineNode,
   type SortConfig,
@@ -108,7 +109,7 @@ function emitStep(node: PipelineNode, schema: SchemaShape): string | null {
     case "sort":
       return emitSort(node.config, schema);
     case "limit":
-      return "// .slice(0, n) — Limit node arrives in Hour 11";
+      return emitLimit(node.config);
     default:
       return assertNever(node);
   }
@@ -142,6 +143,18 @@ function emitMap(config: MapConfig): string | null {
     return `${propertyKey(key)}: row.${p.sourceField}`;
   });
   return `.map((row) => ({ ${props.join(", ")} }))`;
+}
+
+function emitLimit(config: LimitConfig): string {
+  const { count } = config;
+  // Second line of defense: LimitNode.tsx's parseCount already gates the
+  // store to `number | null` and rejects non-integers / non-positives.
+  // The codegen re-validates so a malformed URL state (Hour 14) or a
+  // future schema migration can never emit broken TS.
+  if (count === null || !Number.isInteger(count) || count < 1) {
+    return ".slice(0) /* TODO: configure limit */";
+  }
+  return `.slice(0, ${count})`;
 }
 
 function emitSort(config: SortConfig, schema: SchemaShape): string {
